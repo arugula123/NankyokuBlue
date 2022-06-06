@@ -14,9 +14,13 @@ import matplotlib.pyplot as plt
 import os
 import pandas as pd
 import re
+import seaborn as sns
 
 # Input Data
 DIR = '/Users/ishiwa/Dropbox/01_DataArchive/NankyokuBlue/LakeShumarinai'  # データの格納場所
+
+# Set Parameter
+ANGLE = 10
 
 '''
 Seatrac: 位置決めのデータが格納。rawデータの拡張子はpplog。
@@ -70,7 +74,7 @@ def SeatracCalc(Seatrac):
 
     df.to_csv('SeaTrac.txt',sep='\t',index=False)
 
-def SonarCalc(Sonarlog):
+def SonarCalc(Sonarlog,Angle):
     # 深度データの抽出
     with open('tmp.txt','w') as outf:
         inf = open(Sonarlog,'r')
@@ -86,7 +90,11 @@ def SonarCalc(Sonarlog):
     df['TimeStamp'] = df['TimeStamp'].dt.tz_localize('GMT')
     df['TimeStamp'] = df['TimeStamp'].dt.tz_convert('Asia/Tokyo')
     df['TimeStamp'] = df['TimeStamp'].dt.tz_localize(None)
-    df = df[['TimeStamp','Distance(meters)']]
+    df = df[['TimeStamp','Distance(meters)','Heading','Roll','Pitch']]
+
+    # df = df[(-30 <= df['Roll'] <= 30) & (-30 <= df['Pitch'] <= 30)]
+    df = df[(df['Roll'] <= Angle) & (Angle * -1 <= df['Roll'])]
+    df = df[(df['Pitch'] <= Angle) & (Angle *-1 <= df['Pitch'])]
 
     # 水深はROVの姿勢によらないので、同時刻データを平均値を採用
     df = df.groupby('TimeStamp').mean() # 重複した時間の値を平均
@@ -114,11 +122,10 @@ def TelemetryCalc(Telemetry):
 
     # 水深はROVの姿勢によるので、同時刻データを最小値を採用
     df = df.groupby('TimeStamp').mean()     # 平均化
-    # df = df.groupby('TimeStamp').min()     # 最小値
     df.to_csv('Telemetry.txt',sep='\t')
 
 SeatracCalc(Seatrac)
-SonarCalc(Sonarlog)
+SonarCalc(Sonarlog,ANGLE)
 TelemetryCalc(Telemetry)
 
 Seatrac = pd.read_csv('SeaTrac.txt',sep='\t')
@@ -127,23 +134,21 @@ Telemetry = pd.read_csv('Telemetry.txt',sep='\t')
 
 tmp = pd.merge(Seatrac,Sonar,on='TimeStamp')
 OUT = pd.merge(tmp,Telemetry,on='TimeStamp')
-# tmp = pd.concat([Seatrac,Sonar])
-# OUT = pd.concat([tmp,Telemetry])
-# OUT = OUT.groupby('TimeStamp').mean()     # 平均化
+OUT = OUT.drop_duplicates()     # 重複データを削除
 OUT.to_csv('MargeObs.txt',sep='\t',index=False)
 
 fig = plt.figure(facecolor='white')
 
 ax1 = fig.add_axes((0,0,1,0.8),xlabel='Longitiude',ylabel='Latitude',projection=ccrs.PlateCarree())
+ax1.gridlines(crs=ccrs.PlateCarree(),draw_labels=True)
 ax1.grid(color='k', linestyle=':',linewidth=0.5,alpha=0.8)
 z = OUT['Altitude'] - OUT['Distance(meters)']
 mappable = ax1.scatter(OUT['Lon'],OUT['Lat'],c=z,linewidths=0,alpha=0.5)
 ax1.scatter(142.20,44.3049666667,marker='x')
-ax1.gridlines(crs=ccrs.PlateCarree(),draw_labels=True)
 
 fig.colorbar(mappable,ax=ax1,pad=0.15)
 
-plt.savefig('out.png',format='png',dpi=300,bbox_inches='tight')
+plt.savefig('map.png',format='png',dpi=300,bbox_inches='tight')
 
 os.remove('tmp.txt')
 
